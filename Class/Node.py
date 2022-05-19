@@ -10,11 +10,16 @@ class Node:
 	# Function
 	#	__inint__
 	
-	def __init__(self,name,nNodes,threshold,cloneVM = 'default'):
+	def __init__(self,name,nNodes,threshold,cloneVM,network):
+		self.name = name
+		self.ip = network[:-1]+'%d/24'%(nNodes+1)
+		self.threshold = threshold
+		self.clone_VM = cloneVM
+	'''def __init__(self,name,nNodes,threshold,cloneVM = 'default'):
 		self.name = name
 		self.ip = '10.0.0.%d/24'%(nNodes+1)
 		self.threshold = threshold
-		self.default_VM = cloneVM
+		self.default_VM = cloneVM'''
 	def vlan_definition (self):
 		node_numbre = int (self.ip.split('.')[-1].split('/')[0])
 		while True:
@@ -38,13 +43,13 @@ class Node:
 			elif VM_status == 'paused':
 				subprocess.run(['virsh', 'resume', name])
 		else:
-			default_VM = 'default'
+			clone_VM = self.clone_VM
 			errors = 1
 			shutdown = False
 			while errors != 0:
-				errors = subprocess.run(['virt-clone', '--original', default_VM, '--name', name, '--auto-clone'],capture_output = True).returncode
+				errors = subprocess.run(['virt-clone', '--original', clone_VM, '--name', name, '--auto-clone'],capture_output = True).returncode
 				if errors > 0 and not(shutdown):
-					subprocess.run(['virsh', 'shutdown', default_VM])
+					subprocess.run(['virsh', 'shutdown', clone_VM])
 					shutdown = True
 			subprocess.run(['virsh', 'start', name])
 		self.vlan_definition()

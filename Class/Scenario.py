@@ -7,6 +7,7 @@ from Class.Channel import channel
 import time
 import subprocess
 
+
 # class for the creation and management of nodes and channels. 
 class scenario:
 
@@ -44,12 +45,81 @@ class scenario:
 	#	set_date_time
 	#	set_speed
 	
-	def __init__(self,TotalTime = 24,TimeInterval = 1,date_time: str = None, speed = 1):
+	def __init__(self,TOMLfile):
+		self.time_parameters = time_parameters(TOMLfile['Time'])
+		self.node_list = []
+		self.channel = channel()
+		self.nNodes = 0
+		network = TOMLfile['Network']['network']
+		self.interface = TOMLfile['Network']['interface']
+		for n in range(0,TOMLfile['SatelliteConstellations']['number_constellations']):
+			Constellation = TOMLfile['SatelliteConstellations'][str(n)]
+			config_file = Constellation['config_file']
+			#Open file
+			fo = open(config_file, "r")
+			line0 = fo.readline()
+			line1 = fo.readline()
+			line2 = fo.readline()
+			#Read all the line of the file and creates the scenario
+			while (line0 != "" and line1 != "" and line2 != ""):
+				self.AddSatellite(line0,line1,line2,Constellation['threshold'],Constellation['clone_VM'],network)
+				line0 = fo.readline()
+				line1 = fo.readline()
+				line2 = fo.readline()
+			# Close opened file
+			fo.close()
+		for n in range(0,TOMLfile['GroundStations']['number_GS']):
+			GS = TOMLfile['GroundStations'][str(n)]
+			self.AddGroundStation(GS,network)
+	def AddSatellite(self,line0,line1,line2,threshold,clone_VM,network):
+		if self.nNodes < 254:
+			try:
+				name = line0.split()[0]
+				SAT = Satellite(name,line1,line2,threshold,clone_VM,network,self.nNodes)
+			except ValueError:
+				print ("Node not accepted: Error in the format of the file")
+				pass
+			except IndexError:
+				print ("Node not accepted: Error in the format of the file")
+				pass
+			if Exist_Node(self.node_list,SAT,self.nNodes):
+				print ("- Satellite %s: NOT ACCEPTED"%(SAT.name))
+			else:
+				self.node_list.append(SAT)
+				print ("- Satellite %s: ADDED"%(SAT.name))
+				self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
+				self.nNodes += 1
+				self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
+		else:
+			print ('Maximum number of nodes exceeded: Node NOT ACCEPTED')
+	def AddGroundStation(self,TOML_GS,network):
+		if self.nNodes < 254:
+			try:
+				GS = GroundStation(TOML_GS = TOML_GS, network = network, nNodes = self.nNodes)
+			except ValueError:
+				print ("Node not accepted: Error in the format of the file")
+				return None
+			except IndexError:
+				print ("Node not accepted: Error in the format of the file")
+				return None
+		
+			if Exist_Node(self.node_list,GS,self.nNodes):
+				print ("- Ground Station %s: NOT ACCEPTED"%(GS.name))
+				return None
+			else:
+				self.node_list.append(GS)
+				print ("- Ground Station %s: ADDED"%(GS.name))
+				self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
+				self.nNodes += 1
+				self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
+		else:
+			print ('Maximum number of nodes exceeded: Node NOT ACCEPTED')	
+	'''def __init__(self,TotalTime = 24,TimeInterval = 1,date_time: str = None, speed = 1):
 		self.time_parameters = time_parameters(TotalTime,TimeInterval,date_time,speed)
 		self.node_list = []
 		self.channel = channel()
 		self.nNodes = 0
-		self.interface = 'virbr0'
+		self.interface = 'virbr0'''
 		
 	def AddNode (self,line0:str ,line1:str,line2:str):
 		# From the three lines of the configuration file a new node is created and added to a list. Subsequently, the channel matrix is updated with the delay information of each link.
