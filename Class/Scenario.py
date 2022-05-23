@@ -4,6 +4,7 @@ from Class.Satellite import Satellite
 from Class.Ground_Station import GroundStation
 from Class.Time_parameters import time_parameters
 from Class.Channel import channel
+from skyfield.api import load, wgs84
 import time
 import subprocess
 
@@ -46,36 +47,27 @@ class scenario:
 	#	set_speed
 	
 	def __init__(self,TOMLfile):
+		self.start_Network()
 		self.time_parameters = time_parameters(TOMLfile['Time'])
 		self.node_list = []
 		self.channel = channel()
 		self.nNodes = 0
 		network = TOMLfile['Network']['network']
 		self.interface = TOMLfile['Network']['interface']
-		for n in range(0,TOMLfile['SatelliteConstellations']['number_constellations']):
-			Constellation = TOMLfile['SatelliteConstellations'][str(n)]
+		for n in range(0,len(TOMLfile['SatelliteSegment'])):
+			Constellation = TOMLfile['SatelliteSegment'][str(n)]
 			config_file = Constellation['config_file']
-			#Open file
-			fo = open(config_file, "r")
-			line0 = fo.readline()
-			line1 = fo.readline()
-			line2 = fo.readline()
-			#Read all the line of the file and creates the scenario
-			while (line0 != "" and line1 != "" and line2 != ""):
-				self.AddSatellite(line0,line1,line2,Constellation['threshold'],Constellation['clone_VM'],network)
-				line0 = fo.readline()
-				line1 = fo.readline()
-				line2 = fo.readline()
-			# Close opened file
-			fo.close()
-		for n in range(0,TOMLfile['GroundStations']['number_GS']):
-			GS = TOMLfile['GroundStations'][str(n)]
+			satellites = load.tle_file(config_file)
+			for sat in satellites:
+				self.AddSatellite(sat,Constellation,network)
+		for n in range(0,len(TOMLfile['GroundSegment'])):
+			GS = TOMLfile['GroundSegment'][str(n)]
 			self.AddGroundStation(GS,network)
-	def AddSatellite(self,line0,line1,line2,threshold,clone_VM,network):
+	def AddSatellite(self,sat,constallation,network):
 		if self.nNodes < 254:
 			try:
-				name = line0.split()[0]
-				SAT = Satellite(name,line1,line2,threshold,clone_VM,network,self.nNodes)
+				name = sat.name
+				SAT = Satellite(sat,constallation,network,self.nNodes)
 			except ValueError:
 				print ("Node not accepted: Error in the format of the file")
 				pass
@@ -87,6 +79,7 @@ class scenario:
 			else:
 				self.node_list.append(SAT)
 				print ("- Satellite %s: ADDED"%(SAT.name))
+				SAT.run_VM()
 				self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
 				self.nNodes += 1
 				self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
@@ -109,6 +102,7 @@ class scenario:
 			else:
 				self.node_list.append(GS)
 				print ("- Ground Station %s: ADDED"%(GS.name))
+				GS.run_VM()
 				self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
 				self.nNodes += 1
 				self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
@@ -260,12 +254,12 @@ class scenario:
 		return self.time_parameters.set_speed(speed)
 	def get_speed(self):
 		return self.time_parameters.get_speed(self.channel.get_exist())
-	def start_VMs (self):
+	def start_Network (self):
 		exist_net = subprocess.run('virsh net-list | grep -c -w default', capture_output = True, text = True, shell = True).stdout
 		if int(exist_net) == 0:
 			subprocess.run(['virsh', 'net-start', 'default'])
-		for n in range(0,self.nNodes):
-			self.node_list[n].run_VM()
+		"""for n in range(0,self.nNodes):
+			self.node_list[n].run_VM()"""
 	def run(self,stop_threads,EMU,CESIUM):
 		print (self.time_parameters.get_date_time())
 		print ('-Delay SAT1->SAT2: ',self.channel.get_channel(0,1))
@@ -285,3 +279,6 @@ class scenario:
 			#print (scenario.channel_matrix)
 			time.sleep(60*self.time_parameters.get_TimeInterval()/self.get_speed())
 		if EMU:subprocess.call('./shutdown_bash.sh')
+	def delete_VMs (self):
+		for n in range(0,self.nNodes):
+			self.node_list[n].delete_VM()

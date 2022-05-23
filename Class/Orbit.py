@@ -12,12 +12,9 @@ class Orbit:
 	#	LLA
 	#	ECI
 	
-	def __init__(self,name,line1,line2):
+	def __init__(self,sat):
 		# Creates a Orbit class object from a TLE
-		self.ToA,i0,Omega0,e,w,M0,n,self.ToAyear = Read_TLE(line1,line2)
-		GAST_ToA = gast(self.ToA,self.ToAyear)
-		self.a,self.i0,self.e,self.Omega, d_Omega,self.w, self.M0, self.n = Keplerian_parameters(i0,Omega0,e,w,M0,n,GAST_ToA)
-		self.TLE = EarthSatellite(line1,line2)
+		self.TLE = sat
 	def time_vector(self,TotalTime,TimeInterval,date_time,UTC = 0):
 		if date_time == None:
 			date_time = datetime.now(timezone(timedelta(hours=UTC)))

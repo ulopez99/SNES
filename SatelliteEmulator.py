@@ -44,11 +44,15 @@ def insertNodes(Scenario):
 	# Close opened file
 	fo.close()
 def run(Scenario,EMU,CESIUM):
+	global stop_threads
 	time.sleep(1)
+	SAT1 = Scenario.node_list[0].name
+	SAT2 = Scenario.node_list[1].name
+	i2CAT = Scenario.node_list[2].name
 	print (Scenario.time_parameters.get_date_time())
-	print ('-Delay SAT1->SAT2: ',Scenario.channel.get_channel(0,1))
-	print ('-Delay SAT1->i2CAT: ',Scenario.channel.get_channel(0,2))
-	print ('-Delay SAT2->i2CAT: ',Scenario.channel.get_channel(1,2))
+	print ('-Delay',SAT1,'->',SAT2,': ',Scenario.channel.get_channel(0,1))
+	print ('-Delay',SAT1,'->',i2CAT,': ',Scenario.channel.get_channel(0,2))
+	print ('-Delay',SAT2,'->',i2CAT,': ',Scenario.channel.get_channel(1,2))
 	time.sleep(60*Scenario.time_parameters.get_TimeInterval()/Scenario.get_speed())
 	while True:
 		if stop_threads:
@@ -57,14 +61,14 @@ def run(Scenario,EMU,CESIUM):
 			print('The emulation is over: press enter to shutdown')
 			break
 		print (Scenario.time_parameters.get_date_time())
-		print ('-Delay SAT1->SAT2: ',Scenario.channel.get_channel(0,1))
-		print ('-Delay SAT1->i2CAT: ',Scenario.channel.get_channel(0,2))
-		print ('-Delay SAT2->i2CAT: ',Scenario.channel.get_channel(1,2))
+		print ('-Delay',SAT1,'->',SAT2,': ',Scenario.channel.get_channel(0,1))
+		print ('-Delay',SAT1,'->',i2CAT,': ',Scenario.channel.get_channel(0,2))
+		print ('-Delay',SAT2,'->',i2CAT,': ',Scenario.channel.get_channel(1,2))
 		#print (Scenario.channel_matrix)
 		time.sleep(60*Scenario.time_parameters.get_TimeInterval()/Scenario.get_speed())
 	subprocess.call('./shutdown_bash.sh')
 def main():
-	print ("Hi, you have started the satellite communication emulator.")
+	print ("Hi, you have started the satellite network emulator.")
 	#Open file
 	fo = open('config.toml', "r")
 	TOML = toml.load(fo, _dict=dict)
@@ -120,19 +124,29 @@ def main():
 				TimeInterval = input('Introduce the new duration (in minutes) of the every step: ')
 				Bool_interval = Scenario.set_TimeInterval(TimeInterval)
 		elif inp == 'run' or inp == 'run_all' or inp == 'run all':
-			Scenario.start_VMs()
 			Scenario.write_bash()
 			subprocess.call('./runtime_bash.sh')
+			global stop_threads
 			stop_threads = False
 			x = threading.Thread(target=run,args=(Scenario,True, False,))
 			x.start()
 			input("press enter to shutdown\n")
 			stop_threads = True
-			Scenario .reset()
+			x.join()
+			Scenario.reset()
 		elif inp == 'write_bash':
 			Scenario.write_bash()
 		elif inp == "exit":
 			
+			while True:
+				ans = input("Do you want delete all the VMs relete with the scenario?(Y/N):")
+				if ans == 'Y' or ans == 'y' or ans == 'Yes' or ans == 'YES' or ans == 'yes':
+					Scenario.delete_VMs()
+					break
+				elif ans == 'N' or ans == 'n' or ans == 'No' or ans == 'NO' or ans == 'no':
+					break
+				else:
+					print('ERROR: Invalid answer')
 			break
 		else:
 			print (inp," is not one of the available actions")

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from Class.Functions import *
 from Class.Node import Node
+from skyfield.api import wgs84
 
 class GroundStation(Node):
 	#Varibles
@@ -15,12 +16,13 @@ class GroundStation(Node):
 	def __init__(self,TOML_GS,network,nNodes):
 		# Creates a GroundStation class object from three configuration lines
 		name = TOML_GS['name']
-		lat = TOML_GS['latitude']
-		long = TOML_GS['latitude']
-		elev = TOML_GS['latitude']
+		latitude = TOML_GS['latitude']
+		longitude = TOML_GS['longitude']
+		height = TOML_GS['height']
 		threshold = TOML_GS['threshold']
 		clone_VM = TOML_GS['clone_VM']
-		self.LLA = np.array([float(lat),float(long),float(elev)])
+		self.position = wgs84.latlon(latitude,longitude,height)
+		self.LLA = np.array([float(latitude),float(longitude),float(height)])
 		self.ECEF = LLA2ECEF(self.LLA)
 		Node.__init__(self,name = name,nNodes = nNodes,threshold = threshold,cloneVM = clone_VM,network = network)
 	'''def __init__(self,name,line1,line2,nNodes,threshold=10e6):
