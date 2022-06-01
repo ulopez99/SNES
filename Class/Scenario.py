@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-from Class.Functions import *
 from Class.Satellite import Satellite
 from Class.Ground_Station import GroundStation
 from Class.Time_parameters import time_parameters
 from Class.Channel import channel
 from skyfield.api import load, wgs84
+from ipaddress import IPv4Network
 import time
 import subprocess
 
@@ -46,128 +46,71 @@ class scenario:
 	#	set_date_time
 	#	set_speed
 	
-	def __init__(self,TOMLfile):
+	def __init__(self,TOMLfile,run_VM = True):
 		self.start_Network()
 		self.time_parameters = time_parameters(TOMLfile['Time'])
 		self.node_list = []
-		self.channel = channel()
+		self.ip_Address = []
+		self.channel = channel(TOMLfile['Channel'])
 		self.nNodes = 0
-		network = TOMLfile['Network']['network']
+		ip_Address = []
+		Network = TOMLfile['Network']['network']
+		while True:
+			try:
+				for addr in IPv4Network(Network):
+					ip_Address.append(addr)
+				break
+			except ValueError:
+				Network = input('%s is not a possible network. Insert a correct one:'%(Network)) 
+		self.ip_Address = ip_Address[1:-1]
 		self.interface = TOMLfile['Network']['interface']
-		for n in range(0,len(TOMLfile['SatelliteSegment'])):
-			Constellation = TOMLfile['SatelliteSegment'][str(n)]
-			config_file = Constellation['config_file']
+		SpaceSegment = TOMLfile['SpaceSegment']
+		for SatelliteSistem in SpaceSegment['SatelliteSistem']:
+			config_file = SatelliteSistem['TLE']
 			satellites = load.tle_file(config_file)
 			for sat in satellites:
-				self.AddSatellite(sat,Constellation,network)
-		for n in range(0,len(TOMLfile['GroundSegment'])):
-			GS = TOMLfile['GroundSegment'][str(n)]
-			self.AddGroundStation(GS,network)
-	def AddSatellite(self,sat,constallation,network):
-		if self.nNodes < 254:
-			try:
-				name = sat.name
-				SAT = Satellite(sat,constallation,network,self.nNodes)
-			except ValueError:
-				print ("Node not accepted: Error in the format of the file")
-				pass
-			except IndexError:
-				print ("Node not accepted: Error in the format of the file")
-				pass
-			if Exist_Node(self.node_list,SAT,self.nNodes):
+				self.AddSatellite(sat,SatelliteSistem,run_VM)
+		GroundSegment = TOMLfile['GroundSegment']
+		for GroundSistem in GroundSegment['GroundSistem']:
+			self.AddGroundStation(GroundSistem,run_VM)
+	def AddSatellite(self,sat,constallation,run_VM):
+		try:
+			name = sat.name
+			SAT = Satellite(sat,constallation,self.ip_Address[self.nNodes])
+			if self.Exist_Node(SAT):
 				print ("- Satellite %s: NOT ACCEPTED"%(SAT.name))
 			else:
 				self.node_list.append(SAT)
 				print ("- Satellite %s: ADDED"%(SAT.name))
-				SAT.run_VM()
-				self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
-				self.nNodes += 1
-				self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
-		else:
+				if run_VM: SAT.run_VM()
+		except IndexError:
 			print ('Maximum number of nodes exceeded: Node NOT ACCEPTED')
-	def AddGroundStation(self,TOML_GS,network):
-		if self.nNodes < 254:
-			try:
-				GS = GroundStation(TOML_GS = TOML_GS, network = network, nNodes = self.nNodes)
-			except ValueError:
-				print ("Node not accepted: Error in the format of the file")
-				return None
-			except IndexError:
-				print ("Node not accepted: Error in the format of the file")
-				return None
-		
-			if Exist_Node(self.node_list,GS,self.nNodes):
+			return
+		self.node_list[self.nNodes].update_position(self.time_parameters.get_t_skyfield())	
+		self.nNodes += 1
+		self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters.get_t_skyfield())
+
+	def AddGroundStation(self,TOML_GS,run_VM):
+		try:
+			GS = GroundStation(TOML_GS = TOML_GS, network = self.ip_Address[self.nNodes])
+			if self.Exist_Node(GS):
 				print ("- Ground Station %s: NOT ACCEPTED"%(GS.name))
 				return None
 			else:
 				self.node_list.append(GS)
 				print ("- Ground Station %s: ADDED"%(GS.name))
-				GS.run_VM()
-				self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
-				self.nNodes += 1
-				self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
-		else:
-			print ('Maximum number of nodes exceeded: Node NOT ACCEPTED')	
-	'''def __init__(self,TotalTime = 24,TimeInterval = 1,date_time: str = None, speed = 1):
-		self.time_parameters = time_parameters(TotalTime,TimeInterval,date_time,speed)
-		self.node_list = []
-		self.channel = channel()
-		self.nNodes = 0
-		self.interface = 'virbr0'''
-		
-	def AddNode (self,line0:str ,line1:str,line2:str):
-		# From the three lines of the configuration file a new node is created and added to a list. Subsequently, the channel matrix is updated with the delay information of each link.
-		if self.nNodes < 254:
-			vline0 = line0.split()
-			if len(vline0) > 1:
-				if vline0[0] == "SAT":
-					try:
-						SAT = Satellite(vline0[1],line1,line2,self.nNodes)
-					except ValueError:
-						print ("Node not accepted: Error in the format of the file")
-						return None
-					except IndexError:
-						print ("Node not accepted: Error in the format of the file")
-						return None
-					if Exist_Node(self.node_list,SAT,self.nNodes):
-						print ("- Satellite %s: NOT ACCEPTED"%(SAT.name))
-						return None
-					else:
-						self.node_list.append(SAT)
-						print ("- Satellite %s: ADDED"%(SAT.name))
-					
-				else:
-					try:
-						GS = GroundStation(vline0[1],line1,line2,self.nNodes)
-					except ValueError:
-						print ("Node not accepted: Error in the format of the file")
-						return None
-					except IndexError:
-						print ("Node not accepted: Error in the format of the file")
-						return None
-				
-					if Exist_Node(self.node_list,GS,self.nNodes):
-						print ("- Satellite %s: NOT ACCEPTED"%(GS.name))
-						return None
-					else:
-						self.node_list.append(GS)
-						print ("- Satellite %s: ADDED"%(GS.name))
-			else:
-				print ("Node not accepted: Error in the format of the file")
-				return None
-			self.node_list[self.nNodes].update_position(self.time_parameters.get_date_time())	
-			self.nNodes += 1
-			self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters)
-		else:
+				if run_VM: GS.run_VM()
+		except IndexError:
 			print ('Maximum number of nodes exceeded: Node NOT ACCEPTED')
-			return None
-		
-	def update(self,date_time = None,EMU = False):
+			return
+		self.node_list[self.nNodes].update_position(self.time_parameters.get_t_skyfield())	
+		self.nNodes += 1
+		self.channel.AddNode(self.node_list,self.nNodes,self.time_parameters.get_t_skyfield())			
+	def update(self,EMU = False):
 		# channel_matrix is updated with the delay at one precise time instant.
 		# EMU equals True, update the rules of the interfaces to represent the delay
-		if date_time == None:
-			date_time = self.time_parameters.get_date_time()
-		self.channel.update(self.node_list,self.nNodes,date_time,EMU,self.interface)
+		t_skyfield = self.time_parameters.get_t_skyfield()
+		self.channel.update(self.node_list,self.nNodes,t_skyfield,EMU,self.interface)
 	def delate (self):
 		# delate all the nodes and channels
 		self.node_list = []
@@ -235,31 +178,12 @@ class scenario:
 		# Make the files executable
 		subprocess.run(['chmod', '+x', 'runtime_bash.sh'])
 		subprocess.run(['chmod', '+x', 'shutdown_bash.sh'])
-		
-	def set_TotalTime(self,TotalTime):
-		# change the parameter TotalTime
-		return self.time_parameters.set_TotalTime(TotalTime)
-	def set_TimeInterval(self,TimeInterval):
-		# change the parameter TimeInterval
-		return self.time_parameters.set_TimeInterval(TimeInterval)	
-	def set_date_time(self,date_time):
-		# change the parameter date_time and initial_date_time
-		if self.time_parameters.set_date_time(date_time):
-			self.update()
-			return True
-		else:
-			return False
-	def set_speed(self,speed):
-		# change the parameter speed
-		return self.time_parameters.set_speed(speed)
 	def get_speed(self):
 		return self.time_parameters.get_speed(self.channel.get_exist())
 	def start_Network (self):
 		exist_net = subprocess.run('virsh net-list | grep -c -w default', capture_output = True, text = True, shell = True).stdout
 		if int(exist_net) == 0:
 			subprocess.run(['virsh', 'net-start', 'default'])
-		"""for n in range(0,self.nNodes):
-			self.node_list[n].run_VM()"""
 	def run(self,stop_threads,EMU,CESIUM):
 		print (self.time_parameters.get_date_time())
 		print ('-Delay SAT1->SAT2: ',self.channel.get_channel(0,1))
@@ -282,3 +206,14 @@ class scenario:
 	def delete_VMs (self):
 		for n in range(0,self.nNodes):
 			self.node_list[n].delete_VM()
+	def Exist_Node(self,New_node):
+		exist = False
+		n = 0
+		for Node in self.node_list:
+			if type(New_node).__name__ == "Satellite" and type(Node).__name__ == "Satellite":
+				if Node.ID == New_node.ID or Node.name == New_node.name:
+					return True
+			elif type(New_node).__name__ == "GroundStation" and type(Node).__name__ == "GroundStation":
+				if Node.name == New_node.name:
+					return True		
+		return False	 		

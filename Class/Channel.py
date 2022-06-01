@@ -1,24 +1,39 @@
 #!/usr/bin/env python3
 import subprocess
-from Class.Functions import Define_Channel
+from Class.Functions import Satellite2Satellite,GroundBase2Satellite
+from Class.channel_threshold import threshold
 from skyfield.api import load
+import math
 
+#GLOBAL CONSTANTS
+G = 6.67384e-11;            			# Gravitational constant [m3 kg-1 s-2]
+M = 5.972e+24;              			# Earth mass [kg]
+dOmegaEarth = 7.2921151467e-5			# Angular speed of Earth rotation [rad/s]
+a_Earth = 6378137 				# Earth major semi axis [m]
+e_2 = 0.00669437999014				# Square Earth eccentricity
+c = 3e8					# Speed of light [m/s]
+b = math.sqrt(a_Earth**2-(e_2*a_Earth**2))	# Earth menor semi axis [m]
+MJ2022 = 59580.0 				# MJD on 1/1/2022 at 00:00 UTC (see http://leapsecond.com/java/cal.htm)
 ts = load.timescale()
 
 class channel:
 	matrix = []
 	exist_channel = False
-	def __inint__(self):
+	def __init__(self,channel):
 		self.matrix=[]
+		self.threshold_vector = []
 		self.exist_channel = False
-	def AddNode(self,node_list,nNodes,time_parameters):
+		channel_thresholds = channel['threshold']
+		for channel_threshold in channel_thresholds:
+			self.threshold_vector.append(threshold(channel_threshold))
+	def AddNode(self,node_list,nNodes,t_skyfield):
 		old_matrix = self.matrix
 		self.matrix = []
 		new_row = []
 		for n in range(0,nNodes-1):
 			vector = []
 			vector = old_matrix [n]
-			delay = Define_Channel(node_list[n],node_list[nNodes-1],time_parameters.get_date_time())
+			delay = self.Define_Channel(node_list[n],node_list[nNodes-1],t_skyfield)
 			if not(self.exist_channel) and delay != -1:
 				self.exist_channel = True
 			vector.append(delay)
@@ -26,7 +41,7 @@ class channel:
 			self.matrix.append(vector)
 		new_row.append(0)
 		self.matrix.append(new_row)
-	def update(self,node_list,nNodes,date_time,EMU,root_interface):
+	def update(self,node_list,nNodes,t_skyfield,EMU,root_interface):
 		old_matrix = self.matrix
 		self.matrix = []
 		self.exist_channel = False
@@ -35,14 +50,14 @@ class channel:
 			marker = 0
 			for j in range(0,nNodes):
 				if j >= marker:
-					node_list[j].update_position(date_time)
+					node_list[j].update_position(t_skyfield)
 					marker = j+1	
 				if j < n :
 					delay = self.matrix[j][n]
 				elif n == j:
 					delay = 0
 				else:
-					delay = Define_Channel(node_list[n],node_list[j],date_time)
+					delay = self.Define_Channel(node_list[n],node_list[j],t_skyfield)
 					if delay != -1 and not(self.exist_channel):
 						self.exist_channel = True
 				vector.append(delay)
@@ -71,55 +86,72 @@ class channel:
 		return self.matrix[node1][node2]
 	def get_exist(self):
 		return self.exist_channel
-	def Define_Channel(node, other,date_time = None):
-		threshold = (node.threshold + other.threshold)/2	
+	def search_channel(self,ID):
+		cont = 0
+		for threshold in self.threshold_vector:
+			if ID == threshold.get_id():
+				return cont
+			cont +=1
+	
+	def Define_Channel(self,node, other,t_skyfield):
+		n = 0
+		found = False
+		while n < len(node.channels) and not(found):
+			j = 0
+			while n < len(node.channels) and not(found):
+				if node.channels[n] == other.channels[j]:
+					found = True
+					ID = node.channels[n]
+				else: 
+					j +=1
+			n += 1
+		threshold_pos = self.search_channel(ID)
 		if type(node).__name__ == "Satellite" and type(other).__name__ == "Satellite":
-			LoS, delay = Satellite2Satellite(node.ECEF,other.ECEF,threshold)
+			threshold = self.threshold_vector[threshold_pos].get_Satellite2Satellite()
+			LoS, delay = self.Satellite2Satellite(node.get_ECEF(),other.get_ECEF(),threshold)
 			 
 		elif type(node).__name__ != "Satellite" and type(other).__name__ == "Satellite":
-			LoS, delay = GroundBase2Satellite(other.ECEF,node.ECEF,node.LLA,0,threshold)
+			threshold = self.threshold_vector[threshold_pos].get_Ground2Satellite()
+			LoS, delay = self.GroundBase2Satellite(other,node,0,threshold,t_skyfield)
 			
 		elif type(node).__name__ == "Satellite" and type(other).__name__ != "Satellite":
-			LoS, delay = GroundBase2Satellite(node.ECEF,other.ECEF,other.LLA,0,threshold)
+			threshold = self.threshold_vector[threshold_pos].get_Ground2Satellite()
+			LoS, delay = self.GroundBase2Satellite(node,other,0,threshold,t_skyfield)
 		else:
 			LoS = False
 			delay = -1
 		return delay
-	def GroundBase2Satellite(ECEF_SAT,ECEF_GB,LLA_GB,Min,threshold):
-		difference = satellite.Orbit.TLE - GS.position
-		t = ts.from_datetime(date_time)
-		topocentric = difference.at(t)
+	def GroundBase2Satellite(self, SAT ,GS ,MinAngle,threshold,t_skyfield):
+		difference = SAT.Orbit.TLE - GS.position
+		topocentric = difference.at(t_skyfield)
 		alt, az, distance = topocentric.altaz()
-		if (alt.degrees >= Min) and distance.m < threshold:
+		if (alt.degrees >= MinAngle) and distance.m < threshold:
 			LoS = True
 			delay = distance.m/c*1e3
 		else:
 			LoS = False
 			delay = -1
 		return LoS, delay
-
-	#Compute the delay between two SATs if the line between them not croos the earth and the distance is less than a maximum
-	def Satellite2Satellite(ECEF1,ECEF2,threshold):
-		#The point closest to the center of the earth of the line joining two satellites is calculated to determine if it crosses the earth, so there is no direct vision
-		#(x,y,z) = (x0,y0,z0) + alpha*(vx,vy,vz) equation of the straight line in 3D
-		#vx*x+vy*y+vz*z = 0 Plane perpendicular to the straight line passing through the point P(0,0,0)
-		#The point where the line and the plane intersect is calculated and compared with the ellipsoid that defines the earth
-		#(x²+y²)/a²+z²/b²= 1 If we increase the values of a and b we can discard sight passing through the atmosphere, in case it is considered to add too much attenuation.
-		
-		v = ECEF1 - ECEF2
-		alpha = -(np.dot(ECEF1,v))/(np.dot(v,v))
-		# If alpha is not between 0 and -1, the earth does not lie between the two satellites. 
-		# alpha = (x-x0)/vx = (y-y0)/vy = (z-z0)/vz If v is not 0
-
-		if -1 < alpha < 0:
-			xyz = ECEF1+alpha*v
+	def Satellite2Satellite(self,ECEF1,ECEF2,threshold):
+		#Find the angle of the cone
+		#Note: it can never be greater than 90 º provided that earth_radius <
+		#norm (src)
+		Er = a_Earth
+		norm1 = math.sqrt(ECEF1[0]**2+ECEF1[1]**2+ECEF1[2]**2)
+		ECEF1_norm = ECEF1/norm1
+		theta = math.asin(Er/norm1)
+		diff_vec = ECEF1 - ECEF2
+		diff_norm = math.sqrt(diff_vec[0]**2+diff_vec[1]**2+diff_vec[2]**2)
+		diff_vec_norm = diff_vec/diff_norm
+		dot_res = diff_vec_norm[0] * ECEF1_norm [0] + diff_vec_norm[1] * ECEF1_norm [1] + diff_vec_norm[2] * ECEF1_norm [2]
+		diff_angle = math.acos(abs(dot_res))
+		if diff_angle > theta and threshold > diff_norm:
+			delay = diff_norm/c*1e3
+			return True,delay
 		else:
-			xyz = np.array([a_Earth,a_Earth,b])
-		d = math.sqrt(v[0]**2+v[1]**2+v[2]**2)
-		if ((xyz[0]**2+xyz[1]**2)/a_Earth**2+xyz[2]**2/b**2>1) and d < threshold:
-			LoS = True
-			delay = d/c*1e3
-		else:
-			LoS = False
-			delay = -1
-		return LoS, delay
+			h = norm1-Er
+			if diff_norm > h:
+				return False,-1
+			elif threshold > diff_norm:
+				delay = diff_norm/c*1e3
+				return True,delay

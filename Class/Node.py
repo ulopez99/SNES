@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 import paramiko
+import time
 # mother class of Satellite and GroundStation
 path = '/var/lib/libvirt/images/'
 class Node:
@@ -12,31 +13,35 @@ class Node:
 	# Function
 	#	__inint__
 	
-	def __init__(self,name,nNodes,threshold,cloneVM,network):
+	def __init__(self,name,channels,cloneVM,network):
 		self.name = name
-		self.ip = network[:-1]+'%d/24'%(nNodes+1)
-		self.threshold = threshold
+		self.ip = network
+		self.channels = channels
 		self.clone_VM = cloneVM['name_VM']
 		self.username = cloneVM['username']
 		self.password = cloneVM['password']
-	'''def __init__(self,name,nNodes,threshold,cloneVM = 'default'):
-		self.name = name
-		self.ip = '10.0.0.%d/24'%(nNodes+1)
-		self.threshold = threshold
-		self.default_VM = cloneVM'''
-	def vlan_definition (self):
-		node_numbre = int (self.ip.split('.')[-1].split('/')[0])
+	def get_VM_ip(self):
 		while True:
 			try:
 				VM_ip = subprocess.run('virsh domifaddr %s'%(self.name), capture_output = True, text = True, shell = True).stdout.split('\n')[2].split()[3][:-3]
-				break
+				return VM_ip
 			except IndexError:
 				pass
+	def vlan_definition (self):
+		node_numbre = int (str(self.ip).split('.')[-1].split('/')[0])
+		VM_ip = self.get_VM_ip()
 		ssh = paramiko.SSHClient()
 		ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-		ssh.connect(VM_ip,22, self.username, self.password)
-		command = 'echo %s|sudo -S ip link add link enp1s0 name enp1s0.%d type vlan id %d;sudo ip addr add %s dev enp1s0.%d; sudo ip link set dev enp1s0.%d up' %(self.password,node_numbre,node_numbre,self.ip, node_numbre,node_numbre)
-		ssh.exec_command(command)
+		while True:
+			try:
+				ssh.connect(VM_ip,22, self.username, self.password)
+				command = 'echo %s|sudo -S ip link add link enp1s0 name enp1s0.%d type vlan id %d;sudo ip addr add %s dev enp1s0.%d; sudo ip link set dev enp1s0.%d up' %(self.password,node_numbre,node_numbre,str(self.ip), node_numbre,node_numbre)
+				ssh.exec_command(command)
+				command = 'echo %s|sudo -S hostnamectl set-hostname %s'%(self.password,self.name)
+				ssh.exec_command(command)
+				break
+			except paramiko.ssh_exception.NoValidConnectionsError:
+				pass
 	def run_VM(self):
 		name = self.name
 		VM_status = subprocess.run('virsh list --all | grep -w %s'%(name), capture_output = True, text = True, shell = True).stdout
@@ -66,3 +71,19 @@ class Node:
 		subprocess.run(shell, shell = True)
 		shell = 'find %s -type f -name %s*.qcow2 -delete'%(path,self.name)
 		subprocess.run(shell, shell = True)
+	def ssh_connection(self):
+		Terminals = subprocess.run('ls /dev/pts', capture_output = True, text = True, shell = True).stdout.split()
+		nTerminals_before = len(Terminals)
+		VM_ip = self.get_VM_ip()
+		shell = 'gnome-terminal -t %s -- sshpass -p %s ssh %s@%s'%(self.name,self.password,self.username,VM_ip)
+		subprocess.run(shell, shell = True)
+		time.sleep(0.1)
+		Terminals = subprocess.run('ls /dev/pts', capture_output = True, text = True, shell = True).stdout.split()
+		nTerminals = len(Terminals)
+		if nTerminals_before == nTerminals:
+			shell = 'gnome-terminal -t %s -- ssh %s@%s'%(self.name,self.username,VM_ip)
+			subprocess.run(shell, shell = True)
+	def get_ECEF(self):
+		return self.position.itrs_xyz.m
+	def get_LLA(self):
+		return [self.position.latitude.degrees,self.position.longitude.degrees,self.position.elevation.m]

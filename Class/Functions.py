@@ -259,7 +259,7 @@ def Satellite2Satellite(ECEF1,ECEF2,threshold):
 	#vx*x+vy*y+vz*z = 0 Plane perpendicular to the straight line passing through the point P(0,0,0)
 	#The point where the line and the plane intersect is calculated and compared with the ellipsoid that defines the earth
 	#(x²+y²)/a²+z²/b²= 1 If we increase the values of a and b we can discard sight passing through the atmosphere, in case it is considered to add too much attenuation.
-	
+	b = a_Earth
 	v = ECEF1 - ECEF2
 	alpha = -(np.dot(ECEF1,v))/(np.dot(v,v))
 	# If alpha is not between 0 and -1, the earth does not lie between the two satellites. 
@@ -277,7 +277,29 @@ def Satellite2Satellite(ECEF1,ECEF2,threshold):
 		LoS = False
 		delay = -1
 	return LoS, delay
-	
+def LineOfSight(ECEF1,ECEF2,threshold):
+	#Find the angle of the cone
+	#Note: it can never be greater than 90 º provided that earth_radius <
+	#norm (src)
+	Er = a_Earth
+	norm1 = math.sqrt(ECEF1[0]**2+ECEF1[1]**2+ECEF1[2]**2)
+	ECEF1_norm = ECEF1/norm1
+	theta = math.asin(Er/norm1)
+	diff_vec = ECEF1 - ECEF2
+	diff_norm = math.sqrt(diff_vec[0]**2+diff_vec[1]**2+diff_vec[2]**2)
+	diff_vec_norm = diff_vec/diff_norm
+	dot_res = diff_vec_norm[0] * ECEF1_norm [0] + diff_vec_norm[1] * ECEF1_norm [1] + diff_vec_norm[2] * ECEF1_norm [2]
+	diff_angle = math.acos(abs(dot_res))
+	if diff_angle > theta and threshold > diff_norm:
+		delay = diff_norm/c*1e3
+		return True,delay
+	else:
+		h = norm1-Er
+		if diff_norm > h:
+			return False,-1
+		elif threshold > diff_norm:
+			delay = diff_norm/c*1e3
+			return True,delay
 def Define_Channel(node, other,date_time = None):
 	
 	threshold = (node.threshold + other.threshold)/2	
